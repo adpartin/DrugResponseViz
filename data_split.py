@@ -26,8 +26,8 @@ from scipy import stats
 from pandas.api.types import is_string_dtype
 from sklearn.preprocessing import LabelEncoder
 
-# DATAPATH = '../top_21.res_reg.cf_rnaseq.dd_dragon7.labeled.hdf5'
-DATAPATH = './top_21.res_reg.cf_rnaseq.dd_dragon7.labled.parquet'
+# DATAPATH = '../data/top_21.res_reg.cf_rnaseq.dd_dragon7.labeled.hdf5'
+DATAPATH = '../data/top_21.res_reg.cf_rnaseq.dd_dragon7.labled.parquet'
 outdir = Path('./')
 out_splits = outdir/'out_splits'
 out_figs = outdir/'out_figs'
@@ -262,7 +262,10 @@ def run(args):
     #       Load and break data
     # -----------------------------------------------
     print_fn('\nLoad master dataset.')
-    data = pd.read_parquet( args['datapath'] ) 
+    if args['datapath'].split('.')[-1]=='parquet':
+        data = pd.read_parquet( args['datapath'] ) 
+    if args['datapath'].split('.')[-1]=='hdf5':
+        data = pd.read_hdf5( args['datapath'] ) 
     print_fn('data.shape {}'.format(data.shape))
 
     print_fn('Total DD: {}'.format( len([c for c in data.columns if 'DD_' in c]) ))
