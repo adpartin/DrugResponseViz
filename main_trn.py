@@ -35,9 +35,6 @@ filepath = Path(__file__).resolve().parent
 # Utils
 from classlogger import Logger
 import ml_models
-# from lrn_crv import LearningCurve
-# from plots import plot_hist, plot_runtime
-# import lrn_crv_plot
     
 # Default settings
 OUT_DIR = filepath / 'out'    
@@ -143,7 +140,6 @@ def create_outdir(outdir, args, src):
     t = [t.year, '-', t.month, '-', t.day, '_', 'h', t.hour, '-', 'm', t.minute]
     t = ''.join([str(i) for i in t])
     
-    # l = [args['model_name']] + [('cvf'+str(args['cv_folds']))] + args['cell_fea'] + args['drug_fea'] + [args['target_name']] 
     l = [args['model_name']] + args['cell_fea'] + args['drug_fea'] + [args['target_name']] 
     if args['clr_mode'] is not None: l = [args['clr_mode']] + l
     if 'nn' in args['model_name']: l = [args['opt']] + l
@@ -304,18 +300,9 @@ def calc_scores(y_true, y_pred, mltype, metrics=None):
         
     scores['y_avg_true'] = np.mean(y_true)
     scores['y_avg_pred'] = np.mean(y_pred)
-
-    # # https://scikit-learn.org/stable/modules/model_evaluation.html
-    # for metric_name, metric in metrics.items():
-    #     if isinstance(metric, str):
-    #         scorer = sklearn.metrics.get_scorer(metric_name) # get a scorer from string
-    #         scores[metric_name] = scorer(ydata, pred)
-    #     else:
-    #         scores[metric_name] = scorer(ydata, pred)
     return scores
 
 
-# def dump_preds(y_true, y_pred, meta=None, outdir='.'):
 def dump_preds(y_true, y_pred, meta=None, outpath='./preds.csv'):
     """ Dump prediction and true values, with optional with metadata. """
     y_true = pd.Series(y_true, name='y_true')
@@ -326,7 +313,6 @@ def dump_preds(y_true, y_pred, meta=None, outpath='./preds.csv'):
         preds.insert(loc=4, column='y_pred', value=y_pred.values)
     else:
         preds = pd.concat([y_true, y_pred], axis=1)
-    # preds.to_csv(Path(outdir)/'preds.csv', index=False)
     preds.to_csv(Path(outpath), index=False)
 
 
