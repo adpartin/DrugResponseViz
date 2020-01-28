@@ -39,7 +39,7 @@ import ml_models
 # Default settings
 OUT_DIR = filepath / 'out'    
 FILE_PATH = filepath / 'data/top_21.res_reg.cf_rnaseq.dd_dragon7.labled.parquet'
-SPLITS_DIR = filepath / 'splits'
+SPLITS_DIR = filepath / 'splits_old'
 
         
 def parse_args(args):
@@ -56,7 +56,7 @@ def parse_args(args):
     parser.add_argument('-rout', '--run_outdir', default=None, type=str, help='Run outdir. This is the for the specific run (default: None).')
 
     # Select target to predict
-    parser.add_argument('-t', '--target_name', default='AUC', type=str, choices=['AUC', 'AUC1'], help='Name of target variable (default: AUC).')
+    parser.add_argument('-t', '--target_name', default='AUC', type=str, choices=['AUC'], help='Name of target variable (default: AUC).')
 
     # Select feature types
     parser.add_argument('-cf', '--cell_fea', nargs='+', default=['GE'], choices=['GE'], help='Cell line features (default: GE).')
@@ -69,8 +69,7 @@ def parse_args(args):
     # ML models
     parser.add_argument('-frm', '--framework', default='lightgbm', type=str, choices=['keras', 'lightgbm', 'sklearn'], help='ML framework (default: lightgbm).')
     parser.add_argument('-ml', '--model_name', default='lgb_reg', type=str,
-                        choices=['lgb_reg', 'rf_reg', 'nn_reg', 'nn_reg0', 'nn_reg1', 'nn_reg_attn', 'nn_reg_layer_less', 'nn_reg_layer_more',
-                                 'nn_reg_neuron_less', 'nn_reg_neuron_more', 'nn_reg_res', 'nn_reg_mini', 'nn_reg_ap'], help='ML model (default: lgb_reg).')
+                        choices=['lgb_reg', 'rf_reg', 'nn_reg', 'lgb_cls'], help='ML model (default: lgb_reg).')
 
     # LightGBM params
     parser.add_argument('--gbm_leaves', default=31, type=int, help='Maximum tree leaves for base learners (default: 31).')
@@ -99,22 +98,6 @@ def parse_args(args):
     parser.add_argument('--clr_max_lr', type=float, default=1e-3, help='Max lr for cycle lr.')
     parser.add_argument('--clr_gamma', type=float, default=0.999994, help='Gamma parameter for learning cycle LR.')
 
-    # HPO metric
-    parser.add_argument('--hpo_metric', default='mean_absolute_error', type=str, choices=['mean_absolute_error'],
-            help='Metric for HPO evaluation. Required for UPF workflow on Theta HPC (default: mean_absolute_error).')
-
-    # Learning curve
-    parser.add_argument('--lc_step_scale', default='log2', type=str, choices=['log2', 'log', 'log10', 'linear', 'log2_fine'],
-            help='Scale of progressive sampling of shards in a learning curve (log2, log, log10, linear) (default: log2).')
-    parser.add_argument('--min_shard', default=128, type=int, help='The lower bound for the shard sizes (default: 128).')
-    parser.add_argument('--max_shard', default=None, type=int, help='The upper bound for the shard sizes (default: None).')
-    parser.add_argument('--n_shards', default=None, type=int, help='Number of shards (used only when lc_step_scale is `linear` (default: None).')
-    parser.add_argument('--shards_arr', nargs='+', type=int, default=None, help='List of the actual shards in the learning curve plot (default: None).')
-    parser.add_argument('--plot_fit', action='store_true', help='Whether to generate the fit (default: False).')
-    
-    # HPs file
-    parser.add_argument('--hp_file', default=None, type=str, help='File containing hyperparameters for training (default: None).')
-    
     # Other
     parser.add_argument('--n_jobs', default=8, type=int, help='Default: 8.')
     parser.add_argument('--seed', default=0, type=int, help='Default: 0.')
@@ -214,8 +197,6 @@ def get_data_by_id(idx, X, Y, meta=None):
 
 def trn_lgbm_model(model, xtr, ytr, fit_kwargs, eval_set=None):
     """ Train and save LigthGBM model. """
-    # trn_outdir = create_trn_outdir(fold, tr_sz)
-    
     # Fit params
     fit_kwargs = fit_kwargs
     # fit_kwargs = self.fit_kwargs.copy()
@@ -231,14 +212,11 @@ def trn_lgbm_model(model, xtr, ytr, fit_kwargs, eval_set=None):
     fit_kwargs.pop('eval_set', None)
 
     # joblib.dump(model, filename = trn_outdir / ('model.'+self.model_name+'.pkl') )
-    # return model, trn_outdir, runtime
     return model, runtime
 
 
 def trn_sklearn_model(model, xtr, ytr, fit_kwargs, eval_set=None):
     """ Train and save sklearn model. """
-    # trn_outdir = create_trn_outdir(fold, tr_sz)
-    
     # Fit params
     fit_kwargs = fit_kwargs
     # fit_kwargs = self.fit_kwargs.copy()
@@ -248,7 +226,6 @@ def trn_sklearn_model(model, xtr, ytr, fit_kwargs, eval_set=None):
     model.fit(xtr, ytr, **fit_kwargs)
     runtime = (time() - t0)/60
     # joblib.dump(model, filename = trn_outdir / ('model.'+self.model_name+'.pkl') )
-    # return model, trn_outdir, runtime
     return model, runtime
 
 
@@ -260,14 +237,20 @@ def create_trn_outdir(fold, tr_sz):
 
 def calc_preds(model, x, y, mltype):
     """ Calc predictions. """
-    if mltype == 'cls':    
+    if mltype == 'cls': 
+        def get_pred_fn(model):
+            if hasattr(model, 'predict_proba'):
+                return model.predict_proba
+            if hasattr(model, 'predict'):
+                return model.predict
+
+        pred_fn = get_pred_fn(model)
         if (y.ndim > 1) and (y.shape[1] > 1):
-            y_pred = model.predict_proba(x)
+            y_pred = pred_fn(x)
             y_pred = np.argmax(y_pred, axis=1)
             y_true = np.argmax(ydata, axis=1)
         else:
-            y_pred = model.predict_proba(x)
-            y_pred = np.argmax(y_pred, axis=1)
+            y_pred = pred_fn(x)
             y_true = y
             
     elif mltype == 'reg':
@@ -285,9 +268,15 @@ def calc_scores(y_true, y_pred, mltype, metrics=None):
     scores = {}
 
     if mltype == 'cls':    
-        scores['auroc'] = sklearn.metrics.roc_auc_score(y_true, y_pred)
-        scores['f1_score'] = sklearn.metrics.f1_score(y_true, y_pred, average='micro')
-        scores['acc_blnc'] = sklearn.metrics.balanced_accuracy_score(y_true, y_pred)
+        # Metric that accept probabilities
+        scores['brier'] = sklearn.metrics.brier_score_loss(y_true, y_pred, sample_weight=None, pos_label=1)
+        scores['auc_roc'] = sklearn.metrics.roc_auc_score(y_true, y_pred)
+
+        # Metric that don't accept probabilities
+        y_pred_ = [1 if v>0.5 else 0 for v in y_pred]
+        scores['mcc'] = sklearn.metrics.matthews_corrcoef(y_true, y_pred_, sample_weight=None)
+        scores['f1_score'] = sklearn.metrics.f1_score(y_true, y_pred_, average='micro')
+        scores['acc_blnc'] = sklearn.metrics.balanced_accuracy_score(y_true, y_pred_)
 
     elif mltype == 'reg':
         scores['r2'] = sklearn.metrics.r2_score(y_true=y_true, y_pred=y_pred)
@@ -332,14 +321,6 @@ def run(args):
     # Global outdir
     gout = Path(args['global_outdir'])
     os.makedirs(gout, exist_ok=True)
-    # OUTDIR = filepath/'./' if args['global_outdir'] is None else Path(args['global_outdir']).absolute()
-    # if args['global_outdir'] is None:
-    #     OUTDIR = filepath/'./'
-    # else:
-    #     OUTDIR = Path(args['global_outdir']).absolute()
-    
-    # clr_keras_kwargs = {'mode': args['clr_mode'], 'base_lr': args['clr_base_lr'],
-                        # 'max_lr': args['clr_max_lr'], 'gamma': args['clr_gamma']}
 
     # Create logger
     lg = Logger(gout/'logfile.log')
@@ -392,7 +373,6 @@ def run(args):
     te_scores_all = []
 
     # Iterate over splits
-    # for i, split_id in enumerate(unq_split_ids):
     for i, split_id in enumerate(unq_split_ids):
         print(f'Split {split_id}')
 
@@ -436,8 +416,19 @@ def run(args):
         mvl = mtr.iloc[vl_,:].reset_index(drop=True)
         mtr = mtr.iloc[tr_,:].reset_index(drop=True)
 
+        # Adjust the responses
+        def bin_rsp(y, resp_thres=0.5):
+            y = pd.Series( [0 if v>resp_thres else 1 for v in y.values] )
+            return y
+
+        if mltype=='cls':
+            ytr = bin_rsp(ytr, resp_thres=0.5)
+            yvl = bin_rsp(yvl, resp_thres=0.5)
+            yte = bin_rsp(yte, resp_thres=0.5)
+
         # Define ML model
-        if args['model_name'] == 'lgb_reg':
+        # if args['model_name'] == 'lgb_reg':
+        if 'lgb' in args['model_name']:
             args['framework'] = 'lightgbm'
         elif args['model_name'] == 'rf_reg':
             args['framework'] = 'sklearn'

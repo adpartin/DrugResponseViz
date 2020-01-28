@@ -33,61 +33,9 @@ outdir = Path('./')
 filepath = Path(__file__).resolve().parent
 
 
-# Utils
-# from classlogger import Logger
-# from cv_splitter import cv_splitter, plot_ytr_yvl_dist
-
-
-
-
 def parse_args(args):
     parser = argparse.ArgumentParser(description="Generate data partitions.")
-    """
-    args['cell_fea'] = 'GE'
-    args['drug_fea'] = 'DD'
-    args['te_method'] = 'simple'
-    args['cv_method'] = 'simple'
-    args['te_size'] = 0.1
-    args['vl_size'] = 0.1
-    """
-    # parser.add_argument('--seed', default=0, type=int, help='Seed values (default: 0).')
-    # parser.add_argument('--output', default='1fold', type=str, help='Output name (default: ).')
     args = None
-
-    # Input data
-    # parser.add_argument('--dirpath', default=None, type=str, help='Full path to data and splits (default: None).')
-    
-    # Select target to predict
-    # parser.add_argument('-t', '--target_name', default='AUC', type=str, choices=['AUC'], help='Name of target variable (default: AUC).')
-
-    # Select feature types
-    # parser.add_argument('-cf', '--cell_fea', nargs='+', default=['GE'], choices=['GE'], help='Cell line features (default: rna).')
-    # parser.add_argument('-df', '--drug_fea', nargs='+', default=['DD'], choices=['DD'], help='Drug features (default: dsc).')
-
-    # Data split methods
-    # parser.add_argument('-cvm', '--cv_method', default='simple', type=str, choices=['simple', 'group'], help='CV split method (default: simple).')
-    # parser.add_argument('-cvf', '--cv_folds', default=1, type=str, help='Number cross-val folds (default: 1).')
-    
-    # ML models
-    # parser.add_argument('-frm', '--framework', default='lightgbm', type=str, choices=['keras', 'lightgbm', 'sklearn'], help='ML framework (default: lightgbm).')
-    # parser.add_argument('-ml', '--model_name', default='nn_reg0', choices=['lgb_reg', 'nn_reg0'], type=str, help='ML model for training (default: nn_reg0).')
-
-    # NN hyper_params
-    # parser.add_argument('-ep', '--epochs', default=200, type=int, help='Number of epochs (default: 200).')
-    # parser.add_argument('--batch_size', default=32, type=int, help='Batch size (default: 32).')
-    # parser.add_argument('--dr_rate', default=0.2, type=float, help='Dropout rate (default: 0.2).')
-    # parser.add_argument('-sc', '--scaler', default='stnd', type=str, choices=['stnd', 'minmax', 'rbst'], help='Feature normalization method (default: stnd).')
-
-    # parser.add_argument('--opt', default='sgd', type=str, choices=['sgd', 'adam'], help='Optimizer name (default: sgd).')
-
-    # parser.add_argument('--clr_mode', default=None, type=str, choices=['trng1', 'trng2', 'exp'], help='CLR mode (default: trng1).')
-    # parser.add_argument('--clr_base_lr', type=float, default=1e-4, help='Base lr for cycle lr.')
-    # parser.add_argument('--clr_max_lr', type=float, default=1e-3, help='Max lr for cycle lr.')
-    # parser.add_argument('--clr_gamma', type=float, default=0.999994, help='Gamma parameter for learning cycle LR.')
-
-    # Define n_jobs
-    # parser.add_argument('--skp_ep', default=3, type=int, help='Default: 3.')
-    # parser.add_argument('--n_jobs', default=4, type=int, help='Default: 4.')
 
     # Parse args
     args = parser.parse_args(args)
@@ -198,7 +146,6 @@ def plot_hist(x, var_name, fit=None, bins=100, path='hist.png'):
     plt.savefig(path, bbox_inches='tight')
     
             
-# def make_split(xdata, meta, outdir, args):
 def make_split(args):
 
     # Load data
@@ -206,22 +153,9 @@ def make_split(args):
 
     n_runs = 100
     for seed in range(n_runs):
-        # gen_data_splits.main([ '--seed', str(seed), *args ]) 
         digits = len(str(n_runs))
         seed_str = f"{seed}".zfill(digits)
-        # output = f'1fold_s{seed}' 
         output = '1fold_s' + seed_str 
-        # data_split.main([ '--seed', str(seed), '--output', str(output) ]) 
-
-
-        # Data splits
-        # te_method = args['te_method']
-        # cv_method = args['cv_method']
-        # te_size = split_size(args['te_size'])
-        # vl_size = split_size(args['vl_size'])
-
-        # seed = args['seed']
-        # output = args['output']
 
         te_method = 'simple'
         cv_method = 'simple'
@@ -229,61 +163,26 @@ def make_split(args):
         vl_size = 0.1
 
         # Features 
-        # cell_fea = args['cell_fea']
-        # drug_fea = args['drug_fea']
         cell_fea = 'GE'
         drug_fea = 'DD'
-        # fea_list = cell_fea + drug_fea
         
         # Other params
-        # n_jobs = args['n_jobs']
         n_jobs = 8
 
         # Hard split
         grp_by_col = None
-        # cv_method = 'simple'
 
         # TODO: this need to be improved
         mltype = 'reg'  # required for the splits (stratify in case of classification)
         
         
         # -----------------------------------------------
-        #       Outdir and Logger
-        # -----------------------------------------------
-        # Logger
-        # lg = Logger(outdir/'splitter.log')
-        # lg.logger.info(f'File path: {filepath}')
-        # lg.logger.info(f'\n{pformat(args)}')
-
-        # Dump args to file
-        # dump_dict(args, outpath=outdir/'args.txt')
-
-
-        # -----------------------------------------------
-        #       Load data and pre-proc
-        # -----------------------------------------------
-        # if (outdir/'xdata.parquet').is_file():
-        #     xdata = pd.read_parquet( outdir/'xdata.parquet' )
-        #     meta = pd.read_parquet( outdir/'meta.parquet' )
-        
-        # lg.logger.info('Totoal DD: {}'.format( len([c for c in xdata.columns if 'DD' in c]) ))
-        # lg.logger.info('Totoal GE: {}'.format( len([c for c in xdata.columns if 'GE' in c]) ))
-        # lg.logger.info('Unique cells: {}'.format( meta['CELL'].nunique() ))
-        # lg.logger.info('Unique drugs: {}'.format( meta['DRUG'].nunique() ))
-
-        # plot_hist(meta['AUC'], var_name='AUC', fit=None, bins=100, path=outdir/'AUC_hist_all.png')
-        
-        
-        # -----------------------------------------------
         #       Train-test split
         # -----------------------------------------------
-        # np.random.seed(SEED)
         np.random.seed(seed)
-        # idx_vec = np.random.permutation(xdata.shape[0])
         idx_vec = np.random.permutation(data.shape[0])
 
         if te_method is not None:
-            # lg.logger.info('\nSplit train/test.')
             te_splitter = cv_splitter(cv_method=te_method, cv_folds=1, test_size=te_size,
                                       mltype=mltype, shuffle=False, random_state=seed)
 
@@ -299,32 +198,13 @@ def make_split(args):
             # pd.Series(te_id).to_csv(outdir/f'{output}_te_id.csv', index=False, header=[0])
             pd.Series(te_id).to_csv(outdir/f'{output}_vl_id.csv', index=False, header=[0])
             
-            # lg.logger.info('Train: {:.1f}'.format( len(tr_id)/xdata.shape[0] ))
-            # lg.logger.info('Test:  {:.1f}'.format( len(te_id)/xdata.shape[0] ))
             
-            # Update the master idx vector for the CV splits
-            # idx_vec = tr_id
-
-            # Plot dist of responses (TODO: this can be done to all response metrics)
-            # plot_ytr_yvl_dist(ytr=tr_ydata.values, yvl=te_ydata.values,
-            #         title='tr and te', outpath=run_outdir/'tr_te_resp_dist.png')
-
             # Confirm that group splits are correct
             if te_method=='group' and grp_by_col is not None:
                 tr_grp_unq = set(meta.loc[tr_id, grp_by_col])
                 te_grp_unq = set(meta.loc[te_id, grp_by_col])
                 lg.logger.info(f'\tTotal group ({grp_by_col}) intersections btw tr and te: {len(tr_grp_unq.intersection(te_grp_unq))}.')
                 lg.logger.info(f'\tA few intersections : {list(tr_grp_unq.intersection(te_grp_unq))[:3]}.')
-
-            # Update vl_size to effective vl_size
-            # vl_size = vl_size * xdata.shape[0]/len(tr_id)
-            
-            # Plot hist te
-            # pd.Series(meta.loc[te_id, 'AUC'].values, name='yte').to_csv(outdir/'yte.csv')
-            # plot_hist(meta.loc[te_id, 'AUC'], var_name='AUC', fit=None, bins=100, path=outdir/'AUC_hist_test.png')
-
-            # del tr_id, te_id
-
 
 
 def main(args):

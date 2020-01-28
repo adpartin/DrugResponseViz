@@ -1,5 +1,5 @@
 """ 
-This code generates CV splits train/val/test splits of a dataset.
+This code generates train/val/test splits of a dataset.
 """
 from __future__ import print_function, division
 
@@ -292,10 +292,8 @@ def run(args):
 
     n_splits = args['n_splits']
     for seed in range( n_splits ):
-        # gen_data_splits.main([ '--seed', str(seed), *args ]) 
         digits = len(str(n_splits))
         seed_str = f"{seed}".zfill(digits)
-        # output = f'1fold_s{seed}' 
         output = '1fold_s' + seed_str 
 
         # Note that we don't shuffle the original dataset, but rather we create a vector array of

@@ -68,6 +68,8 @@ def get_model(model_name, init_kwargs=None):
     """
     if model_name == 'lgb_reg':
         model = LGBM_REGRESSOR(**init_kwargs)
+    if model_name == 'lgb_cls':
+        model = LGBM_CLASSIFIER(**init_kwargs)
     elif model_name == 'rf_reg':
         model = RF_REGRESSOR(**init_kwargs)
         
@@ -735,7 +737,39 @@ class LGBM_REGRESSOR(BaseMLModel):
     #     plt.savefig(os.path.join(run_outdir, model_name+'_learning_curve_'+m+'.png'))
     
 
-    
+class LGBM_CLASSIFIER(BaseMLModel):
+    """ LightGBM classifier. """
+    ml_objective = 'binary'
+    model_name = 'lgb_cls'
+
+    # def __init__(self, n_estimators=100, eval_metric=['l2', 'l1'], n_jobs=1, random_state=None):
+    def __init__(self, **kwargs):
+        # TODO: use config file to set default parameters (like in candle)
+        
+       #  self.model = lgb.LGBMModel(
+       #      objective = LGBM_REGRESSOR.ml_objective,
+       #      n_estimators = n_estimators,
+       #      n_jobs = n_jobs,
+       #      random_state = random_state)
+
+        self.model = lgb.LGBMModel( objective = LGBM_CLASSIFIER.ml_objective, **kwargs )
+
+    def dump_model(self, outdir='.'):
+        joblib.dump(self.model, filename=Path(outdir)/('model.' + LGBM_CLASSIFIER.model_name + '.pkl'))
+        # lgb_reg_ = joblib.load(filename=os.path.join(run_outdir, 'lgb_reg_model.pkl'))
+
+        
+    def plot_fi(self, max_num_features=20, title='LGBMClassifier', outdir=None):
+        lgb.plot_importance(booster=self.model, max_num_features=max_num_features, grid=True, title=title)
+        plt.tight_layout()
+
+        filename = LGBM_CLASSIFIER.model_name + '_fi.png'
+        if outdir is None:
+            plt.savefig(filename, bbox_inches='tight')
+        else:
+            plt.savefig(Path(outdir)/filename, bbox_inches='tight')
+
+
 class RF_REGRESSOR(BaseMLModel):
     """ Random forest regressor. """
     # Define class attributes (www.toptal.com/python/python-class-attributes-an-overly-thorough-guide)
