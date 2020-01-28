@@ -6,6 +6,53 @@ channels:
   - bioconda
   - defaults
 dependencies:
+  - pip:
+    - alabaster==0.7.12
+    - babel==2.7.0
+    - chardet==3.0.4
+    - comet-git-pure==0.19.11
+    - comet-ml==1.0.51
+    - configobj==5.0.6
+    - cython==0.29.13
+    - decorator==4.3.2
+    - defusedxml==0.5.0
+    - docutils==0.15.2
+    - environment-kernels==1.1.1
+    - everett==1.0.2
+    - hyperspaces==0.3.0
+    - idna==2.8
+    - imagesize==1.1.0
+    - jedi==0.13.2
+    - jinja2==2.10
+    - jsonschema==2.6.0
+    - jupyterlab==0.35.4
+    - latexcodec==1.0.7
+    - lightgbm==2.2.2
+    - nbconvert==5.4.0
+    - netifaces==0.10.9
+    - nvidia-ml-py3==7.352.0
+    - oset==0.1.3
+    - packaging==19.2
+    - parso==0.3.2
+    - prompt-toolkit==2.0.8
+    - pybtex==0.22.2
+    - pybtex-docutils==0.2.1
+    - pygments==2.3.1
+    - pyzmq==17.1.2
+    - requests==2.21.0
+    - scikit-optimize==0.5.2
+    - snowballstemmer==1.9.1
+    - sphinx==2.2.0
+    - sphinxcontrib-applehelp==1.0.1
+    - sphinxcontrib-bibtex==0.4.2
+    - sphinxcontrib-devhelp==1.0.1
+    - sphinxcontrib-htmlhelp==1.0.2
+    - sphinxcontrib-jsmath==1.0.1
+    - sphinxcontrib-qthelp==1.0.2
+    - sphinxcontrib-serializinghtml==1.1.3
+    - urllib3==1.24.1
+    - websocket-client==0.55.0
+    - wurlitzer==1.0.2
   - _tflow_190_select=0.0.1=gpu
   - absl-py=0.7.0=py36_0
   - arrow-cpp=0.9.0=py36h165c0fa_7
@@ -163,52 +210,5 @@ dependencies:
   - zeromq=4.3.1=he6710b0_3
   - zlib=1.2.11=h7b6447c_3
   - zstd=1.3.3=h84994c4_0
-  - pip:
-    - alabaster==0.7.12
-    - babel==2.7.0
-    - chardet==3.0.4
-    - comet-git-pure==0.19.11
-    - comet-ml==1.0.51
-    - configobj==5.0.6
-    - cython==0.29.13
-    - decorator==4.3.2
-    - defusedxml==0.5.0
-    - docutils==0.15.2
-    - environment-kernels==1.1.1
-    - everett==1.0.2
-    - hyperspaces==0.3.0
-    - idna==2.8
-    - imagesize==1.1.0
-    - jedi==0.13.2
-    - jinja2==2.10
-    - jsonschema==2.6.0
-    - jupyterlab==0.35.4
-    - latexcodec==1.0.7
-    - lightgbm==2.2.2
-    - nbconvert==5.4.0
-    - netifaces==0.10.9
-    - nvidia-ml-py3==7.352.0
-    - oset==0.1.3
-    - packaging==19.2
-    - parso==0.3.2
-    - prompt-toolkit==2.0.8
-    - pybtex==0.22.2
-    - pybtex-docutils==0.2.1
-    - pygments==2.3.1
-    - pyzmq==17.1.2
-    - requests==2.21.0
-    - scikit-optimize==0.5.2
-    - snowballstemmer==1.9.1
-    - sphinx==2.2.0
-    - sphinxcontrib-applehelp==1.0.1
-    - sphinxcontrib-bibtex==0.4.2
-    - sphinxcontrib-devhelp==1.0.1
-    - sphinxcontrib-htmlhelp==1.0.2
-    - sphinxcontrib-jsmath==1.0.1
-    - sphinxcontrib-qthelp==1.0.2
-    - sphinxcontrib-serializinghtml==1.1.3
-    - urllib3==1.24.1
-    - websocket-client==0.55.0
-    - wurlitzer==1.0.2
 prefix: /vol/ml/apartin/anaconda3/envs/p1
 
