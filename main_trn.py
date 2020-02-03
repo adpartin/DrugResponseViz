@@ -50,6 +50,7 @@ def parse_args(args):
 
     # Path to splits
     parser.add_argument('-sp', '--splitpath', default=SPLITS_DIR, type=str, help='Full path to data splits (default: ./splits).')
+    parser.add_argument('--n_splits', default=None, type=int, help='Use a subset of splits (default: None).')
 
     # Global outdir
     parser.add_argument('-gout', '--global_outdir', default=OUT_DIR, type=str, help='Gloabl outdir. (default: out).')
@@ -68,8 +69,8 @@ def parse_args(args):
     
     # ML models
     parser.add_argument('-frm', '--framework', default='lightgbm', type=str, choices=['keras', 'lightgbm', 'sklearn'], help='ML framework (default: lightgbm).')
-    parser.add_argument('-ml', '--model_name', default='lgb_reg', type=str,
-                        choices=['lgb_reg', 'rf_reg', 'nn_reg', 'lgb_cls'], help='ML model (default: lgb_reg).')
+    parser.add_argument('-ml', '--model_name', default='lgb_cls', type=str,
+                        choices=['lgb_reg', 'rf_reg', 'nn_reg', 'lgb_cls'], help='ML model (default: lgb_cls).')
 
     # LightGBM params
     parser.add_argument('--gbm_leaves', default=31, type=int, help='Maximum tree leaves for base learners (default: 31).')
@@ -118,25 +119,6 @@ def verify_dirpath(dirpath):
     return dirpath
     
     
-def create_outdir(outdir, args, src):
-    t = datetime.now()
-    t = [t.year, '-', t.month, '-', t.day, '_', 'h', t.hour, '-', 'm', t.minute]
-    t = ''.join([str(i) for i in t])
-    
-    l = [args['model_name']] + args['cell_fea'] + args['drug_fea'] + [args['target_name']] 
-    if args['clr_mode'] is not None: l = [args['clr_mode']] + l
-    if 'nn' in args['model_name']: l = [args['opt']] + l
-    l = [s.lower() for s in l]
-                
-    fname = '.'.join( [src] + l ) + '_' + t
-    # outdir = Path( src + '_trn' ) / ('split_on_' + args['split_on']) / fname
-    # outdir = Path( 'trn.' + src) / ('split_on_' + args['split_on']) / fname
-    outdir = outdir / Path( 'trn.' + src) / ('split_on_' + args['split_on']) / fname
-    os.makedirs(outdir)
-    #os.makedirs(outdir, exist_ok=True)
-    return outdir
-
-
 def dump_dict(dct, outpath='./dict.txt'):
     """ Dump dict into file. """
     with open( Path(outpath), 'w' ) as file:
@@ -183,9 +165,6 @@ def extract_subset_fea(df, fea_list, fea_sep='_'):
 def get_data_by_id(idx, X, Y, meta=None):
     """ Returns a tuple of (features (x), target (y), metadata (m))
     for an input array of indices (idx). """
-    # x_data = self.X[idx, :]
-    # y_data = np.squeeze(self.Y[idx, :])        
-    # m_data = self.meta.loc[idx, :]
     x_data = X.iloc[idx, :].reset_index(drop=True)
     y_data = np.squeeze(Y.iloc[idx, :]).reset_index(drop=True)
     if meta is not None:
@@ -260,6 +239,19 @@ def calc_preds(model, x, y, mltype):
     return y_pred, y_true
 
 
+def dump_preds(y_true, y_pred, meta=None, outpath='./preds.csv'):
+    """ Dump prediction and true values, with optional with metadata. """
+    y_true = pd.Series(y_true, name='y_true')
+    y_pred = pd.Series(y_pred, name='y_pred')
+    if meta is not None:
+        preds = meta.copy()
+        preds.insert(loc=3, column='y_true', value=y_true.values)
+        preds.insert(loc=4, column='y_pred', value=y_pred.values)
+    else:
+        preds = pd.concat([y_true, y_pred], axis=1)
+    preds.to_csv(Path(outpath), index=False)
+
+
 def calc_scores(y_true, y_pred, mltype, metrics=None):
     """ Create dict of scores.
     Args:
@@ -292,29 +284,41 @@ def calc_scores(y_true, y_pred, mltype, metrics=None):
     return scores
 
 
-def dump_preds(y_true, y_pred, meta=None, outpath='./preds.csv'):
-    """ Dump prediction and true values, with optional with metadata. """
-    y_true = pd.Series(y_true, name='y_true')
-    y_pred = pd.Series(y_pred, name='y_pred')
-    if meta is not None:
-        preds = meta.copy()
-        preds.insert(loc=3, column='y_true', value=y_true.values)
-        preds.insert(loc=4, column='y_pred', value=y_pred.values)
-    else:
-        preds = pd.concat([y_true, y_pred], axis=1)
-    preds.to_csv(Path(outpath), index=False)
-
-
 def scores_to_df(scores_all):
-    """ Dict to df """
+    """ Dict to df. """
     df = pd.DataFrame(scores_all)
-    df = df.melt(id_vars=['fold', 'tr_size', 'set'])
+    df = df.melt(id_vars=['run'])
     df = df.rename(columns={'variable': 'metric'})
-    df = df.pivot_table(index=['metric', 'tr_size', 'set'], columns=['fold'], values='value')
+    df = df.pivot_table(index=['run'], columns=['metric'], values='value')
     df = df.reset_index(drop=False)
     df.columns.name = None
     return df
 
+
+def bin_rsp(y, resp_thres=0.5):
+    """ Binarize drug response values. """
+    y = pd.Series( [0 if v>resp_thres else 1 for v in y.values] )
+    return y
+
+
+def get_model_kwargs(args):
+    """ Get ML model init and fit agrs. """
+    if args['framework'] == 'lightgbm':
+        model_init_kwargs = { 'n_estimators': args['gbm_trees'], 'max_depth': args['gbm_max_depth'],
+                              'learning_rate': args['gbm_lr'], 'num_leaves': args['gbm_leaves'],
+                              'n_jobs': args['n_jobs'], 'random_state': args['seed'] }
+        model_fit_kwargs = {'verbose': False}
+
+    elif args['framework'] == 'sklearn':
+        model_init_kwargs = { 'n_estimators': args['rf_trees'], 'n_jobs': args['n_jobs'], 'random_state': args['seed'] }
+        model_fit_kwargs = {}
+
+    elif args['framework'] == 'keras':
+        model_init_kwargs = { 'input_dim': data.shape[1], 'dr_rate': args['dr_rate'],
+                              'opt_name': args['opt'], 'lr': args['lr'], 'batchnorm': args['batchnorm']}
+        model_fit_kwargs = { 'batch_size': args['batch_size'], 'epochs': args['epochs'], 'verbose': 1 }        
+    
+    return model_init_kwargs, model_fit_kwargs
 
 
 def run(args):
@@ -363,7 +367,7 @@ def run(args):
         unq = np.unique(unq)
         return unq
 
-    all_splits_path = glob(str(args['splitpath']/'1fold_*_id.csv'))
+    all_splits_path = glob(str(Path(args['splitpath'])/'1fold_*_id.csv'))
     unq_split_ids = get_unq_split_ids(all_splits_path)
     run_times = []
 
@@ -372,9 +376,15 @@ def run(args):
     vl_scores_all = []
     te_scores_all = []
 
+    # Sample size at each run
+    smp_sz = []
+    file_smp_sz = open(gout/'sample_sz', 'w')
+    file_smp_sz.write('run\ttr_sz\tvl_sz\tte_sz\n')
+
     # Iterate over splits
-    for i, split_id in enumerate(unq_split_ids):
-        print(f'Split {split_id}')
+    n_splits = args['n_splits']
+    for i, split_id in enumerate(unq_split_ids[:n_splits]):
+        # print(f'Split {split_id}')
 
         # Get indices for the split
         aa = [p for p in all_splits_path if f'1fold_{split_id}' in p]
@@ -411,47 +421,44 @@ def run(args):
         tr_, vl_ = train_test_split(id_arr, test_size=0.1)
         xvl = xtr.iloc[vl_,:].reset_index(drop=True)
         xtr = xtr.iloc[tr_,:].reset_index(drop=True)
-        yvl = ytr.iloc[vl_].reset_index(drop=True)
-        ytr = ytr.iloc[tr_].reset_index(drop=True)
         mvl = mtr.iloc[vl_,:].reset_index(drop=True)
         mtr = mtr.iloc[tr_,:].reset_index(drop=True)
+        yvl = ytr.iloc[vl_].reset_index(drop=True)
+        ytr = ytr.iloc[tr_].reset_index(drop=True)
+
+        def drop_samples(x_df, y_df, m_df, items_to_drop, drop_by='CELL'):
+            id_drop = m_df[drop_by].isin( items_to_drop )
+            x_df = x_df[~id_drop].reset_index(drop=True)
+            y_df = y_df[~id_drop].reset_index(drop=True)
+            m_df = m_df[~id_drop].reset_index(drop=True)
+            return x_df, y_df, m_df
+
+        # Dump cell lines
+        cell_to_drop_fname = 'cell_list_tmp'
+        cell_to_drop_fpath = filepath / cell_to_drop_fname
+        if cell_to_drop_fpath.exists():
+            with open(cell_to_drop_fpath, 'r') as f:
+                cells_to_drop = [line.rstrip() for line in f]
+                xtr, ytr, mtr = drop_samples(x_df=xtr, y_df=ytr, m_df=mtr, items_to_drop=cells_to_drop)
+                xvl, yvl, mvl = drop_samples(x_df=xvl, y_df=yvl, m_df=mvl, items_to_drop=cells_to_drop)
+                xte, yte, mte = drop_samples(x_df=xte, y_df=yte, m_df=mte, items_to_drop=cells_to_drop)
+
+        line = 's{}\t{}\t{}\t{}\n'.format(split_id, xtr.shape[0], xvl.shape[0], xte.shape[0])
+        file_smp_sz.write(line)
 
         # Adjust the responses
-        def bin_rsp(y, resp_thres=0.5):
-            y = pd.Series( [0 if v>resp_thres else 1 for v in y.values] )
-            return y
-
         if mltype=='cls':
             ytr = bin_rsp(ytr, resp_thres=0.5)
             yvl = bin_rsp(yvl, resp_thres=0.5)
             yte = bin_rsp(yte, resp_thres=0.5)
 
         # Define ML model
-        # if args['model_name'] == 'lgb_reg':
         if 'lgb' in args['model_name']:
             args['framework'] = 'lightgbm'
         elif args['model_name'] == 'rf_reg':
             args['framework'] = 'sklearn'
         elif 'nn_' in args['model_name']:
             args['framework'] = 'keras'
-
-        def get_model_kwargs(args):
-            if args['framework'] == 'lightgbm':
-                model_init_kwargs = { 'n_estimators': args['gbm_trees'], 'max_depth': args['gbm_max_depth'],
-                                      'learning_rate': args['gbm_lr'], 'num_leaves': args['gbm_leaves'],
-                                      'n_jobs': args['n_jobs'], 'random_state': args['seed'] }
-                model_fit_kwargs = {'verbose': False}
-
-            elif args['framework'] == 'sklearn':
-                model_init_kwargs = { 'n_estimators': args['rf_trees'], 'n_jobs': args['n_jobs'], 'random_state': args['seed'] }
-                model_fit_kwargs = {}
-
-            elif args['framework'] == 'keras':
-                model_init_kwargs = { 'input_dim': xdata.shape[1], 'dr_rate': args['dr_rate'],
-                                      'opt_name': args['opt'], 'lr': args['lr'], 'batchnorm': args['batchnorm']}
-                model_fit_kwargs = { 'batch_size': args['batch_size'], 'epochs': args['epochs'], 'verbose': 1 }        
-            
-            return model_init_kwargs, model_fit_kwargs
 
         model_init_kwargs, model_fit_kwargs = get_model_kwargs(args)
 
@@ -460,11 +467,6 @@ def run(args):
         model = estimator.model
         
         # Train
-        # TODO: consider to pass and function train_model that will be used to train model and return
-        # specified parameters, or a dict with required and optional parameters
-        # trn_outdir = f'run_{split_id}'
-        # os.makedirs(OUT_DIR/trn_ourdir, exist_ok=True)
-
         eval_set = (xvl, yvl)
         # eval_set = None
         if args['framework']=='lightgbm':
@@ -488,7 +490,8 @@ def run(args):
         run_times.append(runtime)
         
         # Dump model
-        joblib.dump(model, filename = rout / ('model.'+args['model_name']+'.pkl') )
+        if args['save_model']:
+            joblib.dump(model, filename = rout / ('model.'+args['model_name']+'.pkl') )
 
         # Calc preds and scores
         # ... training set
@@ -520,12 +523,16 @@ def run(args):
         if i%10 == 0:
             print(f'Finished {split_id}')
 
+    file_smp_sz.close()
 
     # Scores to df
     tr_scores_df = scores_to_df( tr_scores_all )
     vl_scores_df = scores_to_df( vl_scores_all )
     te_scores_df = scores_to_df( te_scores_all )
 
+    tr_scores_df.to_csv(gout/'tr_scores.csv', index=False)
+    vl_scores_df.to_csv(gout/'vl_scores.csv', index=False)
+    te_scores_df.to_csv(gout/'te_scores.csv', index=False)
 
     if (time()-t0)//3600 > 0:
         lg.logger.info('Runtime: {:.1f} hrs'.format( (time()-t0)/3600) )

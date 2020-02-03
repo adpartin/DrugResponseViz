@@ -133,11 +133,6 @@ def plot_hist(x, var_name, fit=None, bins=100, path='hist.png'):
     
     alpha = 0.6
     fig, ax = plt.subplots()
-#     sns.distplot(x, bins=bins, kde=True, fit=fit, 
-#                  hist_kws={'linewidth': 2, 'alpha': alpha, 'color': 'b'},
-#                  kde_kws={'linewidth': 2, 'alpha': alpha, 'color': 'k'},
-#                  fit_kws={'linewidth': 2, 'alpha': alpha, 'color': 'r',
-#                           'label': label})
     sns.distplot(x, bins=bins, kde=False, fit=fit, 
                  hist_kws={'linewidth': 2, 'alpha': alpha, 'color': 'b'})
     plt.grid(True)
