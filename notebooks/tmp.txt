@@ -1,0 +1,139 @@
+def reorg_cols(df, col_first:str):
+    """
+    Args:
+        col_first : col name to put first
+    """
+    cols = df.columns.tolist()
+    cols.remove(col_first)
+    return df[[col_first] + cols]
+    
+def agg_preds_from_cls_runs(runs_dirs, phase='_te.csv', verbose=False):
+    """ Aggregate predictions bootstraped ML trainings. """
+    prd = []
+    for i, dir_name in enumerate(runs_dirs):
+        if '_tr.csv' in phase:
+            prd_ = pd.read_csv(dir_name/'preds_tr.csv')
+        elif '_vl.csv' in phase:
+            prd_ = pd.read_csv(dir_name/'preds_vl.csv')
+        elif '_te.csv' in phase:
+            prd_ = pd.read_csv(dir_name/'preds_te.csv')
+        
+        # prd_te_['err'] = abs(prd_te_['y_true'] - prd_te_['y_pred'])      # add col 'err'
+        prd_['run'] = str(dir_name).split(os.sep)[-1].split('_')[-1]  # add col 'run' identifier
+        prd.append(prd_)  # append run data
+
+        if verbose:
+            if i%20==0:
+                print(f'Processing {dir_name}')
+            
+    # Aggregate to df
+    prd = pd.concat(prd, axis=0)
+    
+    # Reorganize cols
+    prd = reorg_cols(prd, col_first='run').sort_values('run').reset_index(drop=True).reset_index().rename(columns={'index': 'idx'})
+    return prd
+    
+# Concat preds from all runs      
+prd_te_all = agg_preds_from_cls_runs(runs_dirs, phase='_te.csv')
+prd_te_all.insert(loc=2, column='source', value=[s.split('.')[0].lower() for s in prd_te_all['CELL']]) # add 'source' column
+
+# Add CTYPE columns
+prd_te_all = pd.merge(prd_te_all, cancer_types, on='CELL')
+prd_te_all = reorg_cols(prd_te_all, col_first='CTYPE')
+
+# Plot confusion matrix
+from sklearn.metrics import confusion_matrix
+y_true_cls = prd_te_all.y_true
+y_pred_cls = prd_te_all.y_pred.map(lambda x: 0 if x<0.5 else 1)
+np_conf = confusion_matrix(y_true_cls, y_pred_cls)
+tn, fp, fn, tp = confusion_matrix(y_true_cls, y_pred_cls).ravel()
+
+mcc = sklearn.metrics.matthews_corrcoef(y_true_cls, y_pred_cls, sample_weight=None)
+print('TN:', tn)
+print('FP:', fp)
+print('FN:', fn)
+print('TP:', tp)
+print('FPR:', fp/(fp+tn))
+print('FNR:', fn/(fn+tp))
+print('MCC:', mcc)
+
+with open(out_postproc_fpath/'scores.txt', 'w') as f:
+    f.write('TN: {:d}\n'.format(tn))
+    f.write('TN: {:d}\n'.format(tn))
+    f.write('FP: {:d}\n'.format(fp))
+    f.write('FN: {:d}\n'.format(fn))
+    f.write('TP: {:d}\n'.format(tp))
+    f.write('FPR: {:.5f}\n'.format(fp/(fp+tn)))
+    f.write('FNR: {:.5f}\n'.format(fn/(fn+tp)))
+    f.write('MCC: {:.5f}\n'.format(mcc))
+    
+    
+def add_conf_data(data):
+    """ Add columns are used to calc confusion matrix TP, TN, FN, FP. """
+    data['TP'] = data.apply(lambda row: row.y_pred_cls_1 if row.y_true==1 else False, axis=1)  # tp
+    data['TN'] = data.apply(lambda row: row.y_pred_cls_0 if row.y_true==0 else False, axis=1)  # tn
+    data['FN'] = data.apply(lambda row: row.y_pred_cls_0 if row.y_true==1 else False, axis=1)  # fn
+    data['FP'] = data.apply(lambda row: row.y_pred_cls_1 if row.y_true==0 else False, axis=1)  # fp
+    
+    data['TPR'] = data.apply(lambda row: np.nan if (row.TP==0) & (row.FN==0) else row.TP / (row.TP + row.FN), axis=1)  # sensitivity, recall: TP/P = TP/(TP+FN)
+    data['TNR'] = data.apply(lambda row: np.nan if (row.TN==0) & (row.FP==0) else row.TN / (row.TN + row.FP), axis=1)  # specificity: TN/N = TN/(TN+FP)
+    
+    data['FPR'] = data.apply(lambda row: np.nan if (row.TN==0) & (row.FP==0) else row.FP / (row.TN + row.FP), axis=1)  # fall-out: FP/N = FP/(FP+TN)
+    data['FNR'] = data.apply(lambda row: np.nan if (row.TP==0) & (row.FN==0) else row.FN / (row.TP + row.FN), axis=1)  # miss-rate: FN/NP = FN/(FN+TP)
+    
+    # data['TPR'] = data['TP'].values / (data['TP'].values + data['FN'].values)  # sensitivity, recall
+    # data['TNR'] = data['TN'].values / (data['TN'].values + data['FP'].values)  # specificity
+    return data
+    
+
+# Groupby Cell
+by = 'CELL'
+sm_cell = prd_te_to_grp.groupby([by, 'y_true']).agg(    
+    {'DRUG': 'unique',
+     'CTYPE': 'unique',
+     'y_true_unq_vals': 'unique',
+     'y_pred_prob_median': np.median,
+     'y_pred_prob_std': np.std,
+     'y_pred_cls_0': lambda x: int(sum(x)),
+     'y_pred_cls_1': lambda x: int(sum(x)),
+     'y_pred_tot': lambda x: len(np.unique(x)),
+     }).reset_index().sort_values(by, ascending=True)
+
+sm_cell['y_true_unq_vals'] = sm_cell.y_true_unq_vals.map(lambda x: len(x) if type(x)==np.ndarray else 1)
+sm_cell = add_conf_data(sm_cell)
+sm_cell.to_csv(gout/'sum_by_cell.csv', index=False)
+
+# Groupby Cancer Type
+by = 'CTYPE'
+sm_ctype = prd_te_to_grp.groupby([by, 'y_true']).agg(    
+    {'DRUG': 'unique',
+     'CELL': 'unique',
+     'y_true_unq_vals': 'unique',
+     'y_pred_prob_median': np.median,
+     'y_pred_prob_std': np.std,
+     'y_pred_cls_0': lambda x: int(sum(x)),
+     'y_pred_cls_1': lambda x: int(sum(x)),
+     'y_pred_tot': lambda x: len(np.unique(x)),
+     }).reset_index().sort_values(by, ascending=True)
+
+sm_ctype['y_true_unq_vals'] = sm_ctype.y_true_unq_vals.map(lambda x: len(x) if type(x)==np.ndarray else 1)
+sm_ctype = add_conf_data(sm_ctype)
+sm_ctype.to_csv(gout/'sum_by_ctype.csv', index=False)
+
+# Groupby Drug
+by = 'DRUG'
+sm_drug = prd_te_to_grp.groupby([by, 'y_true']).agg(    
+    {# 'DRUG': 'unique',
+     'CTYPE': 'unique',
+     'CELL': 'unique',
+     'y_true_unq_vals': 'unique',
+     'y_pred_prob_median': np.median,
+     'y_pred_prob_std': np.std,
+     'y_pred_cls_0': lambda x: int(sum(x)),
+     'y_pred_cls_1': lambda x: int(sum(x)),
+     'y_pred_tot': lambda x: len(np.unique(x)),
+     }).reset_index().sort_values(by, ascending=True)
+
+sm_drug['y_true_unq_vals'] = sm_drug.y_true_unq_vals.map(lambda x: len(x) if type(x)==np.ndarray else 1)
+sm_drug = add_conf_data(sm_drug)
+sm_drug.to_csv(gout/'sum_by_drug.csv', index=False)
