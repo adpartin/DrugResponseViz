@@ -38,23 +38,27 @@ import ml_models
     
 # Default settings
 OUT_DIR = filepath / 'out'    
-FILE_PATH = filepath / 'data/top_21.res_reg.cf_rnaseq.dd_dragon7.labled.parquet'
-SPLITS_DIR = filepath / 'splits_old'
+FILE_PATH = filepath / 'data/top_21.res_reg.cf_rnaseq.dd_dragon7.labled.r0.parquet'
+# FILE_PATH = filepath / 'data/top_21.res_bin.cf_rnaseq.dd_dragon7.labled.r0.parquet'
+# SPLITS_DIR = filepath / 'splits_old'
 
         
 def parse_args(args):
-    parser = argparse.ArgumentParser(description="Generate learning curves.")
+    parser = argparse.ArgumentParser(description="Large cross-validation runs.")
 
     # Input data
     parser.add_argument('-fp', '--filepath', default=FILE_PATH, type=str, help='Full path to data (default: None).')
 
     # Path to splits
-    parser.add_argument('-sp', '--splitpath', default=SPLITS_DIR, type=str, help='Full path to data splits (default: ./splits).')
+    parser.add_argument('-sp', '--splitpath', default=None, type=str, help='Full path to data splits (default: None).')
     parser.add_argument('--n_splits', default=None, type=int, help='Use a subset of splits (default: None).')
+
+    # List of samples to drop
+    parser.add_argument('-cld', '--cell_list_drop', default=None, type=str, help='A list of cell lines to drop (default: None).')
+    parser.add_argument('-dld', '--drup_list_drop', default=None, type=str, help='A list of drugs to drop (default: None).')
 
     # Global outdir
     parser.add_argument('-gout', '--global_outdir', default=OUT_DIR, type=str, help='Gloabl outdir. (default: out).')
-    parser.add_argument('-rout', '--run_outdir', default=None, type=str, help='Run outdir. This is the for the specific run (default: None).')
 
     # Select target to predict
     parser.add_argument('-t', '--target_name', default='AUC', type=str, choices=['AUC'], help='Name of target variable (default: AUC).')
@@ -71,6 +75,7 @@ def parse_args(args):
     parser.add_argument('-frm', '--framework', default='lightgbm', type=str, choices=['keras', 'lightgbm', 'sklearn'], help='ML framework (default: lightgbm).')
     parser.add_argument('-ml', '--model_name', default='lgb_cls', type=str,
                         choices=['lgb_reg', 'rf_reg', 'nn_reg', 'lgb_cls'], help='ML model (default: lgb_cls).')
+    parser.add_argument('--save_model', default=None, help='Save ML model (default: None).')
 
     # LightGBM params
     parser.add_argument('--gbm_leaves', default=31, type=int, help='Maximum tree leaves for base learners (default: 31).')
@@ -332,7 +337,7 @@ def run(args):
     lg.logger.info(f'\n{pformat(args)}')
 
     # dirpath = verify_dirpath(args['dirpath'])
-    data = read_data_file( args['filepath'], 'parquet' )
+    data = read_data_file( filepath/args['filepath'], 'parquet' )
     print('data.shape', data.shape)
 
     # Get features (x), target (y), and meta
@@ -340,6 +345,7 @@ def run(args):
     xdata = extract_subset_fea(data, fea_list=fea_list, fea_sep='_')
     meta = data.drop(columns=xdata.columns)
     ydata = meta[[ args['target_name'] ]]
+    del data
 
     # ML type ('reg' or 'cls')
     if 'reg' in args['model_name']:
@@ -382,7 +388,7 @@ def run(args):
     file_smp_sz.write('run\ttr_sz\tvl_sz\tte_sz\n')
 
     # Iterate over splits
-    n_splits = args['n_splits']
+    n_splits = None if args['n_splits'] is None else (args['n_splits'] + 1)
     for i, split_id in enumerate(unq_split_ids[:n_splits]):
         # print(f'Split {split_id}')
 
@@ -394,8 +400,12 @@ def run(args):
         for id_file in aa:
             if 'tr_id' in id_file:
                 tr_id = read_data_file( id_file )
+            # elif 'vl_id' in id_file:
+            #     # vl_id = read_data_file( id_file )
+            #     te_id = read_data_file( id_file )
             elif 'vl_id' in id_file:
-                # vl_id = read_data_file( id_file )
+                vl_id = read_data_file( id_file )
+            elif 'te_id' in id_file:
                 te_id = read_data_file( id_file )
 
         # Define run outdir
@@ -407,26 +417,29 @@ def run(args):
 
         # Get training and val data
         # Extract Train set T, Validation set V, and Test set E
-        # tr_id.iloc[:, fold].dropna().values.astype(int).tolist()
         tr_id = tr_id.iloc[:,0].values.astype(int).tolist()
-        # vl_id = vl_id.iloc[:,0].values.astype(int).tolist()
+        vl_id = vl_id.iloc[:,0].values.astype(int).tolist()
         te_id = te_id.iloc[:,0].values.astype(int).tolist()
         xtr, ytr, mtr = get_data_by_id(tr_id, xdata, ydata, meta) # samples from xtr are sequentially sampled for TRAIN
-        # xvl, yvl, mvl = get_data_by_id(vl_id, xdata, ydata, meta) # fixed set of VAL samples for the current CV split
+        xvl, yvl, mvl = get_data_by_id(vl_id, xdata, ydata, meta) # fixed set of VAL samples for the current CV split
         xte, yte, mte = get_data_by_id(te_id, xdata, ydata, meta) # fixed set of TEST samples for the current CV split
 
         # Extract val data
-        from sklearn.model_selection import train_test_split
-        id_arr = np.arange(len(xtr))
-        tr_, vl_ = train_test_split(id_arr, test_size=0.1)
-        xvl = xtr.iloc[vl_,:].reset_index(drop=True)
-        xtr = xtr.iloc[tr_,:].reset_index(drop=True)
-        mvl = mtr.iloc[vl_,:].reset_index(drop=True)
-        mtr = mtr.iloc[tr_,:].reset_index(drop=True)
-        yvl = ytr.iloc[vl_].reset_index(drop=True)
-        ytr = ytr.iloc[tr_].reset_index(drop=True)
+        # from sklearn.model_selection import train_test_split
+        # id_arr = np.arange(len(xtr))
+        # tr_, vl_ = train_test_split(id_arr, test_size=0.1)
+        # xvl = xtr.iloc[vl_,:].reset_index(drop=True)
+        # xtr = xtr.iloc[tr_,:].reset_index(drop=True)
+        # mvl = mtr.iloc[vl_,:].reset_index(drop=True)
+        # mtr = mtr.iloc[tr_,:].reset_index(drop=True)
+        # yvl = ytr.iloc[vl_].reset_index(drop=True)
+        # ytr = ytr.iloc[tr_].reset_index(drop=True)
 
-        def drop_samples(x_df, y_df, m_df, items_to_drop, drop_by='CELL'):
+        def drop_samples(x_df, y_df, m_df, items_to_drop, drop_by:str):
+            """
+            Args:
+                drop_by : col in df ('CELL', 'DRUG', 'CTYPE')
+            """
             id_drop = m_df[drop_by].isin( items_to_drop )
             x_df = x_df[~id_drop].reset_index(drop=True)
             y_df = y_df[~id_drop].reset_index(drop=True)
@@ -434,14 +447,19 @@ def run(args):
             return x_df, y_df, m_df
 
         # Dump cell lines
-        cell_to_drop_fname = 'cell_list_tmp'
-        cell_to_drop_fpath = filepath / cell_to_drop_fname
-        if cell_to_drop_fpath.exists():
-            with open(cell_to_drop_fpath, 'r') as f:
-                cells_to_drop = [line.rstrip() for line in f]
-                xtr, ytr, mtr = drop_samples(x_df=xtr, y_df=ytr, m_df=mtr, items_to_drop=cells_to_drop)
-                xvl, yvl, mvl = drop_samples(x_df=xvl, y_df=yvl, m_df=mvl, items_to_drop=cells_to_drop)
-                xte, yte, mte = drop_samples(x_df=xte, y_df=yte, m_df=mte, items_to_drop=cells_to_drop)
+        # if args['cell_list_drop'] is not None:
+        #     cell_to_drop_fpath = Path(args['cell_list_drop'])
+        # cell_to_drop_fname = 'cell_list_tmp'
+        # cell_to_drop_fpath = filepath / cell_to_drop_fname
+        if args['cell_list_drop'] is not None:
+            cell_to_drop_fpath = Path(args['cell_list_drop'])
+            if cell_to_drop_fpath.exists():
+                # with open(cell_to_drop_fpath, 'r') as f:
+                with open(cell_to_path_fpath, 'r') as f:
+                    cells_to_drop = [line.rstrip() for line in f]
+                    xtr, ytr, mtr = drop_samples(x_df=xtr, y_df=ytr, m_df=mtr, items_to_drop=cells_to_drop)
+                    xvl, yvl, mvl = drop_samples(x_df=xvl, y_df=yvl, m_df=mvl, items_to_drop=cells_to_drop)
+                    xte, yte, mte = drop_samples(x_df=xte, y_df=yte, m_df=mte, items_to_drop=cells_to_drop)
 
         line = 's{}\t{}\t{}\t{}\n'.format(split_id, xtr.shape[0], xvl.shape[0], xte.shape[0])
         file_smp_sz.write(line)
@@ -518,7 +536,8 @@ def run(args):
         te_scores_all.append(te_scores)
 
         # Free space
-        del xtr, ytr, mtr, xvl, yvl, mvl, xte, yte, mte, tr_, vl_
+        # del xtr, ytr, mtr, xvl, yvl, mvl, xte, yte, mte, tr_, vl_
+        del xtr, ytr, mtr, xvl, yvl, mvl, xte, yte, mte, eval_set, model, estimator
 
         if i%10 == 0:
             print(f'Finished {split_id}')
@@ -538,9 +557,167 @@ def run(args):
         lg.logger.info('Runtime: {:.1f} hrs'.format( (time()-t0)/3600) )
     else:
         lg.logger.info('Runtime: {:.1f} min'.format( (time()-t0)/60) )
+
+    del tr_scores_df, vl_scores_df, te_scores_df
+    # --------------------------------------------------------
+    # Calc stats
+    cancer_types = pd.read_csv(filepath/'data/combined_cancer_types', sep='\t', names=['CELL', 'CTYPE'])
+
+    def reorg_cols(df, col_first:str):
+        """
+        Args:
+            col_first : col name to put first
+        """
+        cols = df.columns.tolist()
+        cols.remove(col_first)
+        return df[[col_first] + cols]
         
+    def agg_preds_from_cls_runs(runs_dirs, phase='_te.csv', verbose=False):
+        """ Aggregate predictions bootstraped ML trainings. """
+        prd = []
+        for i, dir_name in enumerate(runs_dirs):
+            if '_tr.csv' in phase:
+                prd_ = pd.read_csv(dir_name/'preds_tr.csv')
+            elif '_vl.csv' in phase:
+                prd_ = pd.read_csv(dir_name/'preds_vl.csv')
+            elif '_te.csv' in phase:
+                prd_ = pd.read_csv(dir_name/'preds_te.csv')
+            
+            # prd_te_['err'] = abs(prd_te_['y_true'] - prd_te_['y_pred'])      # add col 'err'
+            prd_['run'] = str(dir_name).split(os.sep)[-1].split('_')[-1]  # add col 'run' identifier
+            prd.append(prd_)  # append run data
+
+            if verbose:
+                if i%20==0:
+                    print(f'Processing {dir_name}')
+                
+        # Aggregate to df
+        prd = pd.concat(prd, axis=0)
+        
+        # Reorganize cols
+        prd = reorg_cols(prd, col_first='run').sort_values('run').reset_index(drop=True).reset_index().rename(columns={'index': 'idx'})
+        return prd
+        
+    # Concat preds from all runs
+    runs_dirs = [Path(p) for p in glob(str(gout/'run_*'))]
+    prd_te_all = agg_preds_from_cls_runs(runs_dirs, phase='_te.csv')
+    prd_te_all.insert(loc=2, column='source', value=[s.split('.')[0].lower() for s in prd_te_all['CELL']])
+
+    # Add CTYPE columns
+    prd_te_all = pd.merge(prd_te_all, cancer_types, on='CELL')
+    prd_te_all = reorg_cols(prd_te_all, col_first='CTYPE')
+
+    prd_te_all['prd_cat'] = None
+    prd_te_all.prd_cat[ (prd_te_all.y_true_cls==1) & (prd_te_all.y_pred_cls==1) ] = 'TP'
+    prd_te_all.prd_cat[ (prd_te_all.y_true_cls==0) & (prd_te_all.y_pred_cls==0) ] = 'TN'
+    prd_te_all.prd_cat[ (prd_te_all.y_true_cls==1) & (prd_te_all.y_pred_cls==0) ] = 'FN'
+
+    # Save aggregated master table
+    prd_te_all.to_csv('prd_te_all.csv', index=False)
+
+    # Plot confusion matrix
+    from sklearn.metrics import confusion_matrix
+    y_true_cls = prd_te_all.y_true
+    y_pred_cls = prd_te_all.y_pred.map(lambda x: 0 if x<0.5 else 1)
+    np_conf = confusion_matrix(y_true_cls, y_pred_cls)
+    tn, fp, fn, tp = confusion_matrix(y_true_cls, y_pred_cls).ravel()
+
+    mcc = sklearn.metrics.matthews_corrcoef(y_true_cls, y_pred_cls, sample_weight=None)
+    print('TN:', tn)
+    print('FP:', fp)
+    print('FN:', fn)
+    print('TP:', tp)
+    print('FPR:', fp/(fp+tn))
+    print('FNR:', fn/(fn+tp))
+    print('MCC:', mcc)
+
+    with open(gout/'scores.txt', 'w') as f:
+        f.write('TN: {:d}\n'.format(tn))
+        f.write('TN: {:d}\n'.format(tn))
+        f.write('FP: {:d}\n'.format(fp))
+        f.write('FN: {:d}\n'.format(fn))
+        f.write('TP: {:d}\n'.format(tp))
+        f.write('FPR: {:.5f}\n'.format(fp/(fp+tn)))
+        f.write('FNR: {:.5f}\n'.format(fn/(fn+tp)))
+        f.write('MCC: {:.5f}\n'.format(mcc))
+        
+    def add_conf_data(data):
+        """ Add columns are used to calc confusion matrix TP, TN, FN, FP. """
+        data['TP'] = data.apply(lambda row: row.y_pred_cls_1 if row.y_true==1 else False, axis=1)  # tp
+        data['TN'] = data.apply(lambda row: row.y_pred_cls_0 if row.y_true==0 else False, axis=1)  # tn
+        data['FN'] = data.apply(lambda row: row.y_pred_cls_0 if row.y_true==1 else False, axis=1)  # fn
+        data['FP'] = data.apply(lambda row: row.y_pred_cls_1 if row.y_true==0 else False, axis=1)  # fp
+        
+        data['TPR'] = data.apply(lambda row: np.nan if (row.TP==0) & (row.FN==0) else row.TP / (row.TP + row.FN), axis=1)  # sensitivity, recall: TP/P = TP/(TP+FN)
+        data['TNR'] = data.apply(lambda row: np.nan if (row.TN==0) & (row.FP==0) else row.TN / (row.TN + row.FP), axis=1)  # specificity: TN/N = TN/(TN+FP)
+        
+        data['FPR'] = data.apply(lambda row: np.nan if (row.TN==0) & (row.FP==0) else row.FP / (row.TN + row.FP), axis=1)  # fall-out: FP/N = FP/(FP+TN)
+        data['FNR'] = data.apply(lambda row: np.nan if (row.TP==0) & (row.FN==0) else row.FN / (row.TP + row.FN), axis=1)  # miss-rate: FN/NP = FN/(FN+TP)
+        return data
+        
+
+    # Summary table
+    prd_te_to_grp = prd_te_all.copy()
+    prd_te_to_grp['y_pred_prob_median'] = prd_te_to_grp.y_pred
+    prd_te_to_grp['y_pred_prob_std'] = prd_te_to_grp.y_pred
+    prd_te_to_grp['y_pred_tot'] = prd_te_to_grp.idx
+    prd_te_to_grp['y_pred_cls_0'] = prd_te_to_grp.y_pred.map(lambda x: True if x<0.5 else False)
+    prd_te_to_grp['y_pred_cls_1'] = prd_te_to_grp.y_pred.map(lambda x: True if x>=0.5 else False)
+    prd_te_to_grp['y_true_unq_vals'] = prd_te_to_grp.y_true
+
+    # Groupby Cell
+    by = 'CELL'
+    sm_cell = prd_te_to_grp.groupby([by, 'y_true']).agg(    
+        {'DRUG': 'unique',
+         'CTYPE': 'unique',
+         'y_true_unq_vals': 'unique',
+         'y_pred_prob_median': np.median,
+         'y_pred_prob_std': np.std,
+         'y_pred_cls_0': lambda x: int(sum(x)),
+         'y_pred_cls_1': lambda x: int(sum(x)),
+         'y_pred_tot': lambda x: len(np.unique(x)),
+         }).reset_index().sort_values(by, ascending=True)
+
+    sm_cell['y_true_unq_vals'] = sm_cell.y_true_unq_vals.map(lambda x: len(x) if type(x)==np.ndarray else 1)
+    sm_cell = add_conf_data(sm_cell)
+    sm_cell.to_csv(gout/'sm_by_cell.csv', index=False)
+
+    # Groupby Cancer Type
+    by = 'CTYPE'
+    sm_ctype = prd_te_to_grp.groupby([by, 'y_true']).agg(    
+        {'DRUG': 'unique',
+         'CELL': 'unique',
+         'y_true_unq_vals': 'unique',
+         'y_pred_prob_median': np.median,
+         'y_pred_prob_std': np.std,
+         'y_pred_cls_0': lambda x: int(sum(x)),
+         'y_pred_cls_1': lambda x: int(sum(x)),
+         'y_pred_tot': lambda x: len(np.unique(x)),
+         }).reset_index().sort_values(by, ascending=True)
+
+    sm_ctype['y_true_unq_vals'] = sm_ctype.y_true_unq_vals.map(lambda x: len(x) if type(x)==np.ndarray else 1)
+    sm_ctype = add_conf_data(sm_ctype)
+    sm_ctype.to_csv(gout/'sm_by_ctype.csv', index=False)
+
+    # Groupby Drug
+    by = 'DRUG'
+    sm_drug = prd_te_to_grp.groupby([by, 'y_true']).agg(    
+        {'CTYPE': 'unique',
+         'CELL': 'unique',
+         'y_true_unq_vals': 'unique',
+         'y_pred_prob_median': np.median,
+         'y_pred_prob_std': np.std,
+         'y_pred_cls_0': lambda x: int(sum(x)),
+         'y_pred_cls_1': lambda x: int(sum(x)),
+         'y_pred_tot': lambda x: len(np.unique(x)),
+         }).reset_index().sort_values(by, ascending=True)
+
+    sm_drug['y_true_unq_vals'] = sm_drug.y_true_unq_vals.map(lambda x: len(x) if type(x)==np.ndarray else 1)
+    sm_drug = add_conf_data(sm_drug)
+    sm_drug.to_csv(gout/'sm_by_drug.csv', index=False)
+
+    # --------------------------------------------------------
     lg.kill_logger()
-    # del xdata, ydata
 
 
 def main(args):

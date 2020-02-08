@@ -9,6 +9,7 @@ warnings.filterwarnings('ignore')
 import os
 import sys
 from pathlib import Path
+from time import time
 import argparse
 from pprint import pprint, pformat
 from glob import glob
@@ -45,7 +46,10 @@ def parse_args(args):
     parser = argparse.ArgumentParser(description='Generate and save dataset splits.')
 
     # Input data
-    parser.add_argument('--datapath', default=DATAPATH, type=str, help='Full path to the data.')
+    parser.add_argument('-dp', '--datapath', default=DATAPATH, type=str, help='Full path to the data.')
+
+    # Out splits path
+    parser.add_argument('-op', '--outpath', default=out_splits, type=str, help='Full path to the data.')
 
     # Feature types
     parser.add_argument('-cf', '--cell_fea', nargs='+', default=['GE'], choices=['GE'], help='Cell features (default: GE).')
@@ -238,6 +242,7 @@ def plot_ytr_yvl_dist(ytr, yvl, title=None, outpath='.'):
 
 
 def run(args):
+    t0 = time()
     te_size = split_size(args['te_size'])
     fea_list = args['cell_fea'] + args['drug_fea']
 
@@ -254,6 +259,7 @@ def run(args):
     #       Create outdir
     # -----------------------------------------------
     # dump_dict(args, outpath=outdir/'data_split_args.txt') # dump args.
+    out_splits = Path( args['outpath'] )
     os.makedirs(out_splits, exist_ok=True)
     os.makedirs(out_figs, exist_ok=True)
 
@@ -361,6 +367,7 @@ def run(args):
     
             
     # lg.kill_logger()
+    print_fn('Runtime: {:.1f} min'.format( (time()-t0)/60) )
     print('Done.')
     
     
