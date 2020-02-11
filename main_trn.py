@@ -24,6 +24,9 @@ import sklearn
 import numpy as np
 import pandas as pd
 
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import ConfusionMatrixDisplay
+
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.externals import joblib
 from math import sqrt
@@ -35,6 +38,7 @@ filepath = Path(__file__).resolve().parent
 # Utils
 from classlogger import Logger
 import ml_models
+from gen_prd_te_table import update_prd_table
     
 # Default settings
 OUT_DIR = filepath / 'out'    
@@ -52,6 +56,10 @@ def parse_args(args):
     # Path to splits
     parser.add_argument('-sp', '--splitpath', default=None, type=str, help='Full path to data splits (default: None).')
     parser.add_argument('--n_splits', default=None, type=int, help='Use a subset of splits (default: None).')
+
+    # Drop a specific range of target values 
+    parser.add_argument('--min_gap', default=None, type=float, help='Min gap of AUC value (default: None).')
+    parser.add_argument('--max_gap', default=None, type=float, help='Max gap of AUC value (default: None).')
 
     # List of samples to drop
     parser.add_argument('-cld', '--cell_list_drop', default=None, type=str, help='A list of cell lines to drop (default: None).')
@@ -91,7 +99,7 @@ def parse_args(args):
     parser.add_argument('--batch_size', default=32, type=int, help='Batch size (default: 32).')
     parser.add_argument('--dr_rate', default=0.2, type=float, help='Dropout rate (default: 0.2).')
     parser.add_argument('-sc', '--scaler', default='stnd', type=str, choices=['stnd', 'minmax', 'rbst'],
-            help='Feature normalization method (stnd, minmax, rbst) (default: stnd).')
+                        help='Feature normalization method (stnd, minmax, rbst) (default: stnd).')
     parser.add_argument('--batchnorm', action='store_true', help='Whether to use batch normalization (default: False).')
     # parser.add_argument('--residual', action='store_true', help='Whether to use residual conncetion (default: False).')
     # parser.add_argument('--initializer', default='he', type=str, choices=['he', 'glorot'], help='Keras initializer name (default: he).')
@@ -435,6 +443,15 @@ def run(args):
         # yvl = ytr.iloc[vl_].reset_index(drop=True)
         # ytr = ytr.iloc[tr_].reset_index(drop=True)
 
+        # Remove AUC gap
+        min_gap = args['min_gap']
+        max_gap = args['max_gap']
+        if (min_gap is not None) & (max_gap is not None):
+            idx = ( ytr.values > min_gap ) & ( ytr.values < max_gap )
+            xtr = xtr[~idx]
+            mtr = mtr[~idx]
+            ytr = ytr[~idx]
+
         def drop_samples(x_df, y_df, m_df, items_to_drop, drop_by:str):
             """
             Args:
@@ -559,10 +576,10 @@ def run(args):
         lg.logger.info('Runtime: {:.1f} min'.format( (time()-t0)/60) )
 
     del tr_scores_df, vl_scores_df, te_scores_df
+
+
     # --------------------------------------------------------
     # Calc stats
-    cancer_types = pd.read_csv(filepath/'data/combined_cancer_types', sep='\t', names=['CELL', 'CTYPE'])
-
     def reorg_cols(df, col_first:str):
         """
         Args:
@@ -601,24 +618,56 @@ def run(args):
     # Concat preds from all runs
     runs_dirs = [Path(p) for p in glob(str(gout/'run_*'))]
     prd_te_all = agg_preds_from_cls_runs(runs_dirs, phase='_te.csv')
-    prd_te_all.insert(loc=2, column='source', value=[s.split('.')[0].lower() for s in prd_te_all['CELL']])
+    if 'source' not in [str(i).lower() for i in prd_te_all.columns.to_list()]:
+        prd_te_all.insert(loc=2, column='SOURCE', value=[s.split('.')[0].lower() for s in prd_te_all['CELL']])
+
+    # Cancer types
+    cancer_types = pd.read_csv(filepath/'data/combined_cancer_types', sep='\t', names=['CELL', 'CTYPE'])
 
     # Add CTYPE columns
     prd_te_all = pd.merge(prd_te_all, cancer_types, on='CELL')
     prd_te_all = reorg_cols(prd_te_all, col_first='CTYPE')
 
+    # Rename
+    prd_te_all = prd_te_all.rename(columns={'y_true': 'y_true_cls', 'y_pred': 'y_pred_prob'})
+
+    # Retain specific columns
+    cols = ['idx', 'run', 'SOURCE', 'CTYPE', 'CELL', 'DRUG', 'R2fit', 'AUC', 'y_true_cls', 'y_pred_prob']
+    prd_te_all = prd_te_all[cols]
+
+    # Add col of pred labels
+    prd_te_all['y_pred_cls'] = prd_te_all.y_pred_prob.map(lambda x: 0 if x<0.5 else 1)
+
+    # The highest error is 0.5 while the lowest is 0.
+    # This value is proportional to the square root of Brier score.
+    prd_te_all['prob_err'] = abs(prd_te_all.y_true_cls - prd_te_all.y_pred_prob)
+
+    # Bin AUC values 
+    bins = np.arange(0, 1.1, 0.1).tolist()
+    prd_te_all['AUC_bin'] = pd.cut(prd_te_all.AUC, bins, right=True, labels=None, retbins=False, precision=3, include_lowest=False, duplicates='raise')
+
+    # Add col that cetegorizes the preds
     prd_te_all['prd_cat'] = None
     prd_te_all.prd_cat[ (prd_te_all.y_true_cls==1) & (prd_te_all.y_pred_cls==1) ] = 'TP'
     prd_te_all.prd_cat[ (prd_te_all.y_true_cls==0) & (prd_te_all.y_pred_cls==0) ] = 'TN'
     prd_te_all.prd_cat[ (prd_te_all.y_true_cls==1) & (prd_te_all.y_pred_cls==0) ] = 'FN'
+    prd_te_all.prd_cat[ (prd_te_all.y_true_cls==0) & (prd_te_all.y_pred_cls==1) ] = 'FP'
+
+    # Add cols
+    prd_te_all['TP'] = prd_te_all.prd_cat=='TP'
+    prd_te_all['TN'] = prd_te_all.prd_cat=='TN'
+    prd_te_all['FP'] = prd_te_all.prd_cat=='FP'
+    prd_te_all['FN'] = prd_te_all.prd_cat=='FN'
 
     # Save aggregated master table
     prd_te_all.to_csv('prd_te_all.csv', index=False)
 
     # Plot confusion matrix
     from sklearn.metrics import confusion_matrix
-    y_true_cls = prd_te_all.y_true
-    y_pred_cls = prd_te_all.y_pred.map(lambda x: 0 if x<0.5 else 1)
+    # y_true_cls = prd_te_all.y_true_cls
+    # y_pred_cls = prd_te_all.y_pred.map(lambda x: 0 if x<0.5 else 1)
+    y_true_cls = prd_te_all.y_true_cls
+    y_pred_cls = prd_te_all.y_pred_cls
     np_conf = confusion_matrix(y_true_cls, y_pred_cls)
     tn, fp, fn, tp = confusion_matrix(y_true_cls, y_pred_cls).ravel()
 
@@ -641,6 +690,19 @@ def run(args):
         f.write('FNR: {:.5f}\n'.format(fn/(fn+tp)))
         f.write('MCC: {:.5f}\n'.format(mcc))
         
+    # Confusion Matrix
+    conf = confusion_matrix(y_true_cls, y_pred_cls, normalize=None)
+    conf_plot = ConfusionMatrixDisplay(conf, display_labels=['NoResp', 'Resp'])
+    conf_plot.plot(include_values=True, cmap=plt.cm.Blues, ax=None, xticks_rotation=None, values_format='d')
+    plt.savefig(gout/'conf_mat.png', dpi=100)
+
+    # Confusion Matrix (normalized)
+    conf = confusion_matrix(y_true_cls, y_pred_cls, normalize='all')
+    conf_plot = ConfusionMatrixDisplay(conf, display_labels=['NoResp', 'Resp'])
+    conf_plot.plot(include_values=True, cmap=plt.cm.Blues, ax=None, xticks_rotation=None, values_format='.2f')
+    conf_plot.ax_.set_title('Normalized')
+    plt.savefig(gout/'conf_mat_norm.png', dpi=100)
+
     def add_conf_data(data):
         """ Add columns are used to calc confusion matrix TP, TN, FN, FP. """
         data['TP'] = data.apply(lambda row: row.y_pred_cls_1 if row.y_true==1 else False, axis=1)  # tp
@@ -654,18 +716,19 @@ def run(args):
         data['FPR'] = data.apply(lambda row: np.nan if (row.TN==0) & (row.FP==0) else row.FP / (row.TN + row.FP), axis=1)  # fall-out: FP/N = FP/(FP+TN)
         data['FNR'] = data.apply(lambda row: np.nan if (row.TP==0) & (row.FN==0) else row.FN / (row.TP + row.FN), axis=1)  # miss-rate: FN/NP = FN/(FN+TP)
         return data
-        
 
     # Summary table
     prd_te_to_grp = prd_te_all.copy()
-    prd_te_to_grp['y_pred_prob_median'] = prd_te_to_grp.y_pred
-    prd_te_to_grp['y_pred_prob_std'] = prd_te_to_grp.y_pred
+    prd_te_to_grp['y_pred_prob_median'] = prd_te_to_grp.y_pred_prob
+    prd_te_to_grp['y_pred_prob_std'] = prd_te_to_grp.y_pred_prob
     prd_te_to_grp['y_pred_tot'] = prd_te_to_grp.idx
     prd_te_to_grp['y_pred_cls_0'] = prd_te_to_grp.y_pred.map(lambda x: True if x<0.5 else False)
     prd_te_to_grp['y_pred_cls_1'] = prd_te_to_grp.y_pred.map(lambda x: True if x>=0.5 else False)
-    prd_te_to_grp['y_true_unq_vals'] = prd_te_to_grp.y_true
+    prd_te_to_grp['y_true_unq_vals'] = prd_te_to_grp.y_true_cls
 
+    # -----------------------
     # Groupby Cell
+    # -----------------------
     by = 'CELL'
     sm_cell = prd_te_to_grp.groupby([by, 'y_true']).agg(    
         {'DRUG': 'unique',
@@ -682,7 +745,9 @@ def run(args):
     sm_cell = add_conf_data(sm_cell)
     sm_cell.to_csv(gout/'sm_by_cell.csv', index=False)
 
+    # -----------------------
     # Groupby Cancer Type
+    # -----------------------
     by = 'CTYPE'
     sm_ctype = prd_te_to_grp.groupby([by, 'y_true']).agg(    
         {'DRUG': 'unique',
@@ -699,7 +764,9 @@ def run(args):
     sm_ctype = add_conf_data(sm_ctype)
     sm_ctype.to_csv(gout/'sm_by_ctype.csv', index=False)
 
+    # -----------------------
     # Groupby Drug
+    # -----------------------
     by = 'DRUG'
     sm_drug = prd_te_to_grp.groupby([by, 'y_true']).agg(    
         {'CTYPE': 'unique',
