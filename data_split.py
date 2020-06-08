@@ -71,15 +71,24 @@ def parse_args(args):
     return args
 
 
-def verify_dirpath(dirpath):
+def verify_path(path):
     """ Verify the dirpath exists and contain the dataset. """
-    if dirpath is None:
-        sys.exit('Program terminated. You must specify a path to a data via the input argument -dp.')
+    if path is None:
+        sys.exit('Program terminated. You must specify a correct path.')
 
-    dirpath = Path(dirpath)
-    assert dirpath.exists(), 'The specified dirpath {dirpath} (via argument -dp) was not found.'
-    return dirpath
+    path = Path(path)
+    assert path.exists(), 'The specified path {path} was not found.'
+    return path
 
+
+def load_data( datapath ):
+    datapath = verify_path( datapath ) 
+    if str(datapath).split('.')[-1]=='parquet':
+        data = pd.read_parquet( datapath ) 
+    elif str(datapath).split('.')[-1]=='hdf5':
+        data = pd.read_hdf5( datapath ) 
+    return data
+    
 
 def create_outdir(dirpath, args):
     if args['split_on'] is None:
@@ -118,10 +127,8 @@ def cnt_fea(df, fea_sep='_', verbose=True, logger=None):
         fea_type_cols = [c for c in df.columns if (c.split(fea_sep)[0]) in prfx] # all fea names of specific type
         dct[prfx] = len(fea_type_cols)
     
-    if verbose and logger is not None:
+    if verbose:
         print_fn( pformat(dct) )
-    elif verbose:
-        pprint(dct)
     return dct
 
 
@@ -131,7 +138,7 @@ def extract_subset_fea(df, fea_list, fea_sep='_'):
     return df[fea]
     
             
-def print_intersection_on_var(df, tr_id, vl_id, te_id, grp_col='CELL', logger=None):
+def print_intersect_on_var(df, tr_id, vl_id, te_id, grp_col='CELL', logger=None):
     """ Print intersection between train, val, and test datasets with respect
     to grp_col column if provided. df is usually metadata.
     """
@@ -141,9 +148,9 @@ def print_intersection_on_var(df, tr_id, vl_id, te_id, grp_col='CELL', logger=No
         te_grp_unq = set(df.loc[te_id, grp_col])
         print_fn = get_print_fn(logger)
 
-        print_fn(f'\tTotal intersections on {grp_col} btw tr and vl: {len(tr_grp_unq.intersection(vl_grp_unq))}')
-        print_fn(f'\tTotal intersections on {grp_col} btw tr and te: {len(tr_grp_unq.intersection(te_grp_unq))}')
-        print_fn(f'\tTotal intersections on {grp_col} btw vl and te: {len(vl_grp_unq.intersection(te_grp_unq))}')
+        print_fn(f'\tTotal intersects on {grp_col} btw tr and vl: {len(tr_grp_unq.intersection(vl_grp_unq))}')
+        print_fn(f'\tTotal intersects on {grp_col} btw tr and te: {len(tr_grp_unq.intersection(te_grp_unq))}')
+        print_fn(f'\tTotal intersects on {grp_col} btw vl and te: {len(vl_grp_unq.intersection(te_grp_unq))}')
         print_fn(f'\tUnique {grp_col} in tr: {len(tr_grp_unq)}')
         print_fn(f'\tUnique {grp_col} in vl: {len(vl_grp_unq)}')
         print_fn(f'\tUnique {grp_col} in te: {len(te_grp_unq)}')    
@@ -243,7 +250,7 @@ def plot_ytr_yvl_dist(ytr, yvl, title=None, outpath='.'):
 
 def run(args):
     t0 = time()
-    te_size = split_size(args['te_size'])
+    te_size = split_size( args['te_size'] )
     fea_list = args['cell_fea'] + args['drug_fea']
 
     # Hard split
@@ -254,7 +261,6 @@ def run(args):
     # TODO: this needs to be improved
     mltype = 'reg'  # required for the splits (stratify in case of classification)
     
-    
     # -----------------------------------------------
     #       Create outdir
     # -----------------------------------------------
@@ -262,17 +268,21 @@ def run(args):
     out_splits = Path( args['outpath'] )
     os.makedirs(out_splits, exist_ok=True)
     os.makedirs(out_figs, exist_ok=True)
-
     
     # -----------------------------------------------
-    #       Load and break data
+    #       Load data
     # -----------------------------------------------
     print_fn('\nLoad master dataset.')
-    if args['datapath'].split('.')[-1]=='parquet':
-        data = pd.read_parquet( args['datapath'] ) 
-    if args['datapath'].split('.')[-1]=='hdf5':
-        data = pd.read_hdf5( args['datapath'] ) 
+    data = load_data( args['datapath'] )
     print_fn('data.shape {}'.format(data.shape))
+
+    # print_fn('\nLoad master dataset.')
+    # data = load( args['datapath'] )
+    # if args['datapath'].split('.')[-1]=='parquet':
+    #     data = pd.read_parquet( args['datapath'] ) 
+    # if args['datapath'].split('.')[-1]=='hdf5':
+    #     data = pd.read_hdf5( args['datapath'] ) 
+    # print_fn('data.shape {}'.format(data.shape))
 
     print_fn('Total DD: {}'.format( len([c for c in data.columns if 'DD_' in c]) ))
     print_fn('Total GE: {}'.format( len([c for c in data.columns if 'GE_' in c]) ))
@@ -284,8 +294,7 @@ def run(args):
     
     if 'AUC' in data.columns:
         plot_hist(data['AUC'], var_name='AUC', fit=None, bins=100, path=out_figs/'AUC_hist_all.png')
-    
-    
+     
     # -----------------------------------------------
     #       Generate Hold-Out split (train/val/test)
     # -----------------------------------------------
@@ -302,10 +311,10 @@ def run(args):
         seed_str = f"{seed}".zfill(digits)
         output = '1fold_s' + seed_str 
 
-        # Note that we don't shuffle the original dataset, but rather we create a vector array of
-        # representative indices.
+        # Note that we don't shuffle the original dataset, but rather
+        # create  a vector array of representative indices.
         np.random.seed( seed )
-        idx_vec = np.random.permutation(data.shape[0])
+        idx_vec = np.random.permutation( data.shape[0] )
         
         # Create splitter that splits the full dataset into tr and te
         te_folds = int(1/te_size)
@@ -355,7 +364,7 @@ def run(args):
         
         # Confirm that group splits are correct (no intersection)
         grp_col = 'CELL' if split_on is None else split_on
-        print_intersection_on_var(data, tr_id=tr_id, vl_id=vl_id, te_id=te_id, grp_col=grp_col)
+        print_intersect_on_var(data, tr_id=tr_id, vl_id=vl_id, te_id=te_id, grp_col=grp_col)
 
         if 'AUC' in data.columns:
             plot_hist(data.loc[tr_id, 'AUC'], var_name='AUC', fit=None, bins=100, path=out_figs/f'{output}_AUC_hist_train.png')

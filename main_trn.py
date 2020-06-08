@@ -152,6 +152,9 @@ def read_data_file(fpath, file_format='csv'):
             df = pd.read_parquet( fpath )
         else:
             raise ValueError('file format is not supported.')
+    else:
+        # sys.exit('Program terminated. You must specify a path to a data via the input argument -dp.')
+        assert fpath.exists(), 'The specified file path was not found: {fpath}.'
     return df    
     
     
@@ -339,11 +342,6 @@ def run(args):
     gout = Path(args['global_outdir'])
     os.makedirs(gout, exist_ok=True)
 
-    # Create logger
-    lg = Logger(gout/'logfile.log')
-    lg.logger.info(f'File path: {filepath}')
-    lg.logger.info(f'\n{pformat(args)}')
-
     # dirpath = verify_dirpath(args['dirpath'])
     data = read_data_file( filepath/args['filepath'], 'parquet' )
     print('data.shape', data.shape)
@@ -363,13 +361,10 @@ def run(args):
     else:
         raise ValueError("model_name must contain 'reg' or 'cls'.")
 
-    # Find out which metadata field was used for hard split (cell, drug, or none)
-    # f = [f for f in dirpath.glob('*args.txt')][0]
-    # with open(f) as f: lines = f.readlines()
-    # def find_arg(lines, arg):
-    #     return [l.split(':')[-1].strip() for l in lines if arg+':' in l][0]
-    # args['split_on'] = find_arg(lines, 'split_on').lower()
-    # args['split_seed'] = find_arg(lines, 'seed').lower()
+    # Create logger
+    lg = Logger(gout/'logfile.log')
+    lg.logger.info(f'File path: {filepath}')
+    lg.logger.info(f'\n{pformat(args)}')
 
     def get_unq_split_ids(all_splits_path):
         """ List containing the full path of each split. """
